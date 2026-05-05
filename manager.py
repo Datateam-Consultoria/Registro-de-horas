@@ -90,7 +90,6 @@ tab_registros, tab_personal, tab_actividades, tab_proyectos = st.tabs([
 # ================================================================
 with tab_registros:
 
-    # ---- Gráfica de barras: horas de esta semana ----
     today = date.today()
     lunes = today - timedelta(days=today.weekday())
     domingo = lunes + timedelta(days=6)
@@ -109,7 +108,6 @@ with tab_registros:
     if not raw_semana:
         st.info("No hay registros para esta semana.")
     else:
-        # Normalizar filas (los joins devuelven dicts anidados)
         filas_semana = []
         for r in raw_semana:
             filas_semana.append({
@@ -154,7 +152,6 @@ with tab_registros:
 
     st.markdown("---")
 
-    # ---- Tabla de todos los registros ----
     st.markdown("### Todos los registros")
 
     if st.button("🔄 Actualizar", key="reg_refresh"):
@@ -185,7 +182,6 @@ with tab_registros:
 
         df = pd.DataFrame(filas)
 
-        # Filtros rápidos
         fc1, fc2, fc3 = st.columns(3)
         empleados_opts = ["Todos"] + sorted(df["Empleado"].unique().tolist())
         proyectos_opts = ["Todos"] + sorted(df["Proyecto"].unique().tolist())
@@ -219,20 +215,21 @@ with tab_personal:
 
     datos = load_personal()
 
-    # --- Calcular horas esta semana por empleado ---
+    # --- Horas esta semana por empleado (reutiliza cache, sin query extra) ---
     raw_semana_per = load_registros_semana()
-    horas_semana_por_empleado: dict[int, float] = {}
+    horas_semana_por_empleado: dict[str, float] = {}
     for r in raw_semana_per:
-        emp = r.get("personal") or {}
-        # registros_horas no devuelve id_empleado directamente en el join,
-        # así que agrupamos por nombre y luego cruzamos con datos de personal
-        nombre_emp = emp.get("nombre", "")
+        nombre_emp = (r.get("personal") or {}).get("nombre", "")
         horas = float(r.get("horas_actividad") or 0)
         horas_semana_por_empleado[nombre_emp] = horas_semana_por_empleado.get(nombre_emp, 0.0) + horas
 
     if "per_estado" not in st.session_state:
         st.session_state.per_estado = {
-            row["id_empleado"]: {"nombre": row["nombre"], "activo": row["activo"]}
+            row["id_empleado"]: {
+                "nombre": row["nombre"],
+                "email":  row.get("email", "") or "",
+                "activo": row["activo"],
+            }
             for row in datos
         }
 
@@ -242,51 +239,74 @@ with tab_personal:
 
     st.markdown("### Empleados")
     st.markdown(
-        f"<span style='font-size:0.85rem;color:gray'>Horas registradas en la semana: "
+        f"<span style='font-size:0.85rem;color:gray'>Horas semana: "
         f"{lunes.strftime('%d/%m/%Y')} — {domingo.strftime('%d/%m/%Y')}</span>",
         unsafe_allow_html=True,
     )
 
-    hcols = st.columns([3, 1, 1, 1])
+    # Columnas: Nombre | Email | Activo | Alta | Horas semana
+    hcols = st.columns([2, 2, 1, 1, 1])
     hcols[0].markdown("**Nombre**")
-    hcols[1].markdown("**Activo**")
-    hcols[2].markdown("**Alta**")
-    hcols[3].markdown("**Horas registradas en la semana**")
+    hcols[1].markdown("**Email**")
+    hcols[2].markdown("**Activo**")
+    hcols[3].markdown("**Alta**")
+    hcols[4].markdown("**Horas semana**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     cambios_per = {}
 
     for row in datos:
         rid   = row["id_empleado"]
-        orig  = {"nombre": row["nombre"], "activo": row["activo"]}
+        orig  = {
+            "nombre": row["nombre"],
+            "email":  row.get("email", "") or "",
+            "activo": row["activo"],
+        }
         estado = st.session_state.per_estado.get(rid, orig.copy())
 
-        rcols = st.columns([3, 1, 1, 1])
+        rcols = st.columns([2, 2, 1, 1, 1])
 
         nuevo_nombre = rcols[0].text_input(
             label="nombre", value=estado["nombre"],
             key=f"per_nombre_{rid}", label_visibility="collapsed",
         )
-        nuevo_activo = rcols[1].checkbox(
+        nuevo_email = rcols[1].text_input(
+            label="email", value=estado["email"],
+            key=f"per_email_{rid}", label_visibility="collapsed",
+            placeholder="correo@ejemplo.com",
+        )
+        nuevo_activo = rcols[2].checkbox(
             label="activo", value=estado["activo"],
             key=f"per_activo_{rid}", label_visibility="collapsed",
         )
-        rcols[2].markdown(fmt_fecha(row.get("fecha_creacion")))
+        rcols[3].markdown(fmt_fecha(row.get("fecha_creacion")))
 
-        # Horas de esta semana para este empleado
+        # Horas semana — rojo si es 0
         horas_emp = horas_semana_por_empleado.get(row["nombre"], 0.0)
         if horas_emp == 0.0:
-            rcols[3].markdown(
-                f"<span style='color:red;font-weight:600'>0.00h</span>",
+            rcols[4].markdown(
+                "<span style='color:red;font-weight:600'>0.00h</span>",
                 unsafe_allow_html=True,
             )
         else:
-            rcols[3].markdown(f"{horas_emp:.2f}h")
+            rcols[4].markdown(f"{horas_emp:.2f}h")
 
-        st.session_state.per_estado[rid] = {"nombre": nuevo_nombre, "activo": nuevo_activo}
+        st.session_state.per_estado[rid] = {
+            "nombre": nuevo_nombre,
+            "email":  nuevo_email,
+            "activo": nuevo_activo,
+        }
 
-        if nuevo_nombre.strip() != orig["nombre"] or nuevo_activo != orig["activo"]:
-            cambios_per[rid] = {"nombre": nuevo_nombre.strip(), "activo": nuevo_activo}
+        if (
+            nuevo_nombre.strip() != orig["nombre"]
+            or nuevo_email.strip() != orig["email"]
+            or nuevo_activo != orig["activo"]
+        ):
+            cambios_per[rid] = {
+                "nombre": nuevo_nombre.strip(),
+                "email":  nuevo_email.strip(),
+                "activo": nuevo_activo,
+            }
 
     if cambios_per:
         st.info(f"✏️ {len(cambios_per)} registro(s) con cambios sin guardar.")
@@ -294,13 +314,15 @@ with tab_personal:
     st.markdown("---")
 
     with st.expander("➕ Agregar empleado"):
-        nuevo_nombre_per = st.text_input("Nombre", key="per_nuevo_nombre")
+        c1, c2 = st.columns(2)
+        nuevo_nombre_per = c1.text_input("Nombre", key="per_nuevo_nombre")
+        nuevo_email_per  = c2.text_input("Email",  key="per_nuevo_email", placeholder="correo@ejemplo.com")
         if st.button("Agregar", key="per_agregar_btn"):
             if not nuevo_nombre_per.strip():
                 st.error("El nombre no puede estar vacío.")
             else:
                 try:
-                    insertar_empleado(supabase, nuevo_nombre_per.strip())
+                    insertar_empleado(supabase, nuevo_nombre_per.strip(), nuevo_email_per.strip())
                     st.success(f"'{nuevo_nombre_per.strip()}' agregado.")
                     recargar_personal()
                     st.session_state.pop("per_estado", None)
@@ -316,7 +338,7 @@ with tab_personal:
         else:
             try:
                 for rid, c in cambios_per.items():
-                    actualizar_empleado(supabase, rid, c["nombre"], c["activo"])
+                    actualizar_empleado(supabase, rid, c["nombre"], c["email"], c["activo"])
                 st.success(f"✅ {len(cambios_per)} registro(s) guardados correctamente.")
                 recargar_personal()
                 st.session_state.pop("per_estado", None)
