@@ -1,7 +1,7 @@
 from supabase import Client
 
 def obtener_empleados_dict_y_lista(supabase: Client):
-    response = supabase.table("personal").select("id_empleado, nombre").execute()
+    response = supabase.table("personal").select("id_empleado, nombre").eq("activo", True).execute()
     data = response.data
 
     if not data:
@@ -13,7 +13,7 @@ def obtener_empleados_dict_y_lista(supabase: Client):
     return dicc, lista
 
 def obtener_proyectos_dict_y_lista(supabase: Client):
-    response = supabase.table("proyectos").select("id_proyecto, nombre_proyecto").execute()
+    response = supabase.table("proyectos").select("id_proyecto, nombre_proyecto").eq("activo", True).execute()
     data = response.data
 
     if not data:
@@ -62,3 +62,57 @@ def insertar_registro_horas(
     }
 
     return supabase.table("registros_horas").insert(data).execute()
+
+
+from supabase import Client
+
+
+# ========================
+# PERSONAL
+# ========================
+
+def obtener_personal(supabase: Client):
+    res = supabase.table("personal").select("id_empleado, nombre, activo, fecha_creacion").order("nombre").execute()
+    return res.data or []
+
+
+def actualizar_empleado(supabase: Client, id_empleado: int, nuevo_nombre: str, activo: bool):
+    supabase.table("personal").update({"nombre": nuevo_nombre, "activo": activo}).eq("id_empleado", id_empleado).execute()
+
+
+def insertar_empleado(supabase: Client, nombre: str):
+    supabase.table("personal").insert({"nombre": nombre, "activo": True}).execute()
+
+
+# ========================
+# ACTIVIDADES
+# ========================
+
+def obtener_actividades(supabase: Client):
+    res = supabase.table("actividades").select("id_tipo_actividad, nombre_tipo").order("nombre_tipo").execute()
+    return res.data or []
+
+
+def actualizar_actividad(supabase: Client, id_tipo_actividad: int, nuevo_nombre: str):
+    supabase.table("actividades").update({"nombre_tipo": nuevo_nombre}).eq("id_tipo_actividad", id_tipo_actividad).execute()
+
+
+def insertar_actividad(supabase: Client, nombre: str):
+    supabase.table("actividades").insert({"nombre_tipo": nombre}).execute()
+
+
+# ========================
+# PROYECTOS
+# ========================
+
+def obtener_proyectos(supabase: Client):
+    res = supabase.table("proyectos").select("id_proyecto, nombre_proyecto, activo, fecha_creacion").order("nombre_proyecto").execute()
+    return res.data or []
+
+
+def actualizar_proyecto(supabase: Client, id_proyecto: int, nuevo_nombre: str, activo: bool):
+    supabase.table("proyectos").update({"nombre_proyecto": nuevo_nombre, "activo": activo}).eq("id_proyecto", id_proyecto).execute()
+
+
+def insertar_proyecto(supabase: Client, nombre: str):
+    supabase.table("proyectos").insert({"nombre_proyecto": nombre, "activo": True}).execute()
