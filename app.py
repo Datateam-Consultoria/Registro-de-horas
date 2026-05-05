@@ -68,7 +68,7 @@ ID_ASIGNACION = 4   # actividad Asignacion (ajusta si tu BD usa otro id)
 ID_SOPORTE    = 6   # actividad Soporte
 
 # Actividades que muestran selector de proyecto (ids 1, 4 y 6)
-ID_ACTIVIDADES_CON_PROYECTO = (1, 4, 6)
+ID_ACTIVIDADES_CON_PROYECTO = (1, 5, 6)
 
 ID_PROYECTO_OTRO    = 20   # proyecto "Otro": habilita nombre manual
 ID_PROYECTO_NINGUNO = 0    # excluido del selector; asignado automaticamente a actividades sin proyecto
