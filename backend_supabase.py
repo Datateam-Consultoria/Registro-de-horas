@@ -63,8 +63,8 @@ def insertar_registro_horas(
 
     return supabase.table("registros_horas").insert(data).execute()
 
-
-from supabase import Client
+    
+from datetime import date, timedelta
 
 
 # ========================
@@ -116,3 +116,44 @@ def actualizar_proyecto(supabase: Client, id_proyecto: int, nuevo_nombre: str, a
 
 def insertar_proyecto(supabase: Client, nombre: str):
     supabase.table("proyectos").insert({"nombre_proyecto": nombre, "activo": True}).execute()
+
+
+# ========================
+# REGISTROS DE HORAS
+# ========================
+
+def obtener_registros_horas(supabase: Client):
+    """Trae todos los registros con nombres resueltos via join."""
+    res = (
+        supabase.table("registros_horas")
+        .select(
+            "id_registro, fecha_registro, horas_actividad, nombre_actividad, desc_actividad, "
+            "inicio_actividad, fin_actividad, "
+            "personal(nombre), "
+            "actividades(nombre_tipo), "
+            "proyectos(nombre_proyecto)"
+        )
+        .order("fecha_registro", desc=True)
+        .execute()
+    )
+    return res.data or []
+
+
+def obtener_registros_semana_actual(supabase: Client):
+    """Registros cuya fecha_registro cae en la semana actual (lun-dom)."""
+    today = date.today()
+    lunes = today - timedelta(days=today.weekday())
+    domingo = lunes + timedelta(days=6)
+    res = (
+        supabase.table("registros_horas")
+        .select(
+            "id_registro, fecha_registro, horas_actividad, nombre_actividad, "
+            "personal(nombre), "
+            "actividades(nombre_tipo), "
+            "proyectos(nombre_proyecto)"
+        )
+        .gte("fecha_registro", lunes.isoformat())
+        .lte("fecha_registro", domingo.isoformat())
+        .execute()
+    )
+    return res.data or []
