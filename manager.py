@@ -1,15 +1,19 @@
 import streamlit as st
+import pandas as pd
+import altair as alt
 from supabase import create_client, Client
+from datetime import date, timedelta
 from backend_supabase import (
     obtener_personal, actualizar_empleado, insertar_empleado,
     obtener_actividades, actualizar_actividad, insertar_actividad,
     obtener_proyectos, actualizar_proyecto, insertar_proyecto,
+    obtener_registros_horas, obtener_registros_semana_actual,
 )
 
 # ========================
 # CONFIG
 # ========================
-st.set_page_config(page_title="Manager de catálogos", layout="centered")
+st.set_page_config(page_title="Manager de catálogos", layout="wide")
 
 # ========================
 # HEADER
@@ -57,6 +61,14 @@ def load_actividades():
 def load_proyectos():
     return obtener_proyectos(supabase)
 
+@st.cache_data(ttl=60)
+def load_registros():
+    return obtener_registros_horas(supabase)
+
+@st.cache_data(ttl=60)
+def load_registros_semana():
+    return obtener_registros_semana_actual(supabase)
+
 def recargar_personal():    load_personal.clear()
 def recargar_actividades(): load_actividades.clear()
 def recargar_proyectos():   load_proyectos.clear()
@@ -65,11 +77,139 @@ def recargar_proyectos():   load_proyectos.clear()
 # ========================
 # TABS
 # ========================
-tab_personal, tab_actividades, tab_proyectos = st.tabs([
+tab_registros, tab_personal, tab_actividades, tab_proyectos = st.tabs([
+    "📊 Registros de horas",
     "👤 Personal",
     "🏷️ Actividades",
     "📁 Proyectos",
 ])
+
+
+# ================================================================
+# TAB REGISTROS DE HORAS
+# ================================================================
+with tab_registros:
+
+    # ---- Gráfica de barras: horas de esta semana ----
+    today = date.today()
+    lunes = today - timedelta(days=today.weekday())
+    domingo = lunes + timedelta(days=6)
+
+    st.markdown(f"### Horas esta semana &nbsp; <span style='font-size:0.85rem;color:gray'>{lunes.strftime('%d/%m/%Y')} — {domingo.strftime('%d/%m/%Y')}</span>", unsafe_allow_html=True)
+
+    agrupar_por = st.radio(
+        "Agrupar por",
+        options=["Proyecto", "Tipo de actividad", "Empleado"],
+        horizontal=True,
+        key="reg_agrupar",
+    )
+
+    raw_semana = load_registros_semana()
+
+    if not raw_semana:
+        st.info("No hay registros para esta semana.")
+    else:
+        # Normalizar filas (los joins devuelven dicts anidados)
+        filas_semana = []
+        for r in raw_semana:
+            filas_semana.append({
+                "empleado":   (r.get("personal") or {}).get("nombre", "Sin nombre"),
+                "actividad":  (r.get("actividades") or {}).get("nombre_tipo", "Sin actividad"),
+                "proyecto":   (r.get("proyectos") or {}).get("nombre_proyecto", "Sin proyecto"),
+                "horas":      float(r.get("horas_actividad") or 0),
+            })
+
+        df_semana = pd.DataFrame(filas_semana)
+
+        col_map = {
+            "Proyecto":           "proyecto",
+            "Tipo de actividad":  "actividad",
+            "Empleado":           "empleado",
+        }
+        col_agrup = col_map[agrupar_por]
+
+        df_chart = (
+            df_semana.groupby(col_agrup, as_index=False)["horas"]
+            .sum()
+            .sort_values("horas", ascending=False)
+        )
+
+        chart = (
+            alt.Chart(df_chart)
+            .mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4)
+            .encode(
+                x=alt.X(f"{col_agrup}:N", sort="-y", title=agrupar_por, axis=alt.Axis(labelAngle=-30)),
+                y=alt.Y("horas:Q", title="Horas"),
+                color=alt.Color(f"{col_agrup}:N", legend=None),
+                tooltip=[
+                    alt.Tooltip(f"{col_agrup}:N", title=agrupar_por),
+                    alt.Tooltip("horas:Q", title="Horas", format=".2f"),
+                ],
+            )
+            .properties(height=320)
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+        st.markdown(f"**Total semana:** {df_semana['horas'].sum():.2f}h")
+
+    st.markdown("---")
+
+    # ---- Tabla de todos los registros ----
+    st.markdown("### Todos los registros")
+
+    if st.button("🔄 Actualizar", key="reg_refresh"):
+        load_registros.clear()
+        load_registros_semana.clear()
+        st.rerun()
+
+    raw = load_registros()
+
+    if not raw:
+        st.info("No hay registros.")
+    else:
+        filas = []
+        for r in raw:
+            inicio = r.get("inicio_actividad", "")
+            fin    = r.get("fin_actividad", "")
+            filas.append({
+                "Fecha":        fmt_fecha(r.get("fecha_registro")),
+                "Empleado":     (r.get("personal") or {}).get("nombre", "—"),
+                "Actividad":    (r.get("actividades") or {}).get("nombre_tipo", "—"),
+                "Proyecto":     (r.get("proyectos") or {}).get("nombre_proyecto", "—"),
+                "Nombre act.":  r.get("nombre_actividad", ""),
+                "Descripción":  r.get("desc_actividad", ""),
+                "Horas":        float(r.get("horas_actividad") or 0),
+                "Inicio":       str(inicio)[:16].replace("T", " ") if inicio else "—",
+                "Fin":          str(fin)[:16].replace("T", " ") if fin else "—",
+            })
+
+        df = pd.DataFrame(filas)
+
+        # Filtros rápidos
+        fc1, fc2, fc3 = st.columns(3)
+        empleados_opts = ["Todos"] + sorted(df["Empleado"].unique().tolist())
+        proyectos_opts = ["Todos"] + sorted(df["Proyecto"].unique().tolist())
+        actividad_opts = ["Todos"] + sorted(df["Actividad"].unique().tolist())
+
+        fil_emp  = fc1.selectbox("Empleado",   empleados_opts, key="fil_emp")
+        fil_proy = fc2.selectbox("Proyecto",   proyectos_opts, key="fil_proy")
+        fil_act  = fc3.selectbox("Actividad",  actividad_opts, key="fil_act")
+
+        df_fil = df.copy()
+        if fil_emp  != "Todos": df_fil = df_fil[df_fil["Empleado"]  == fil_emp]
+        if fil_proy != "Todos": df_fil = df_fil[df_fil["Proyecto"]  == fil_proy]
+        if fil_act  != "Todos": df_fil = df_fil[df_fil["Actividad"] == fil_act]
+
+        st.markdown(f"**{len(df_fil)} registro(s) — {df_fil['Horas'].sum():.2f}h en total**")
+
+        st.dataframe(
+            df_fil,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Horas": st.column_config.NumberColumn(format="%.2f"),
+            },
+        )
 
 
 # ================================================================
@@ -79,14 +219,12 @@ with tab_personal:
 
     datos = load_personal()
 
-    # Inicializar estado editable solo si no existe o si los datos cambiaron
     if "per_estado" not in st.session_state:
         st.session_state.per_estado = {
             row["id_empleado"]: {"nombre": row["nombre"], "activo": row["activo"]}
             for row in datos
         }
 
-    # Encabezado
     st.markdown("### Empleados")
     hcols = st.columns([3, 1, 1])
     hcols[0].markdown("**Nombre**")
@@ -97,9 +235,9 @@ with tab_personal:
     cambios_per = {}
 
     for row in datos:
-        rid     = row["id_empleado"]
-        orig    = {"nombre": row["nombre"], "activo": row["activo"]}
-        estado  = st.session_state.per_estado.get(rid, orig.copy())
+        rid   = row["id_empleado"]
+        orig  = {"nombre": row["nombre"], "activo": row["activo"]}
+        estado = st.session_state.per_estado.get(rid, orig.copy())
 
         rcols = st.columns([3, 1, 1])
 
@@ -113,20 +251,16 @@ with tab_personal:
         )
         rcols[2].markdown(fmt_fecha(row.get("fecha_creacion")))
 
-        # Actualizar estado en vivo
         st.session_state.per_estado[rid] = {"nombre": nuevo_nombre, "activo": nuevo_activo}
 
-        # Detectar cambio respecto al valor original en BD
         if nuevo_nombre.strip() != orig["nombre"] or nuevo_activo != orig["activo"]:
             cambios_per[rid] = {"nombre": nuevo_nombre.strip(), "activo": nuevo_activo}
 
-    # Indicador de cambios pendientes
     if cambios_per:
         st.info(f"✏️ {len(cambios_per)} registro(s) con cambios sin guardar.")
 
     st.markdown("---")
 
-    # Agregar nuevo empleado
     with st.expander("➕ Agregar empleado"):
         nuevo_nombre_per = st.text_input("Nombre", key="per_nuevo_nombre")
         if st.button("Agregar", key="per_agregar_btn"):
@@ -142,7 +276,6 @@ with tab_personal:
                 except Exception as e:
                     st.error(f"Error: {e}")
 
-    # Botón guardar global
     if st.button("💾 Guardar cambios", key="per_guardar", use_container_width=True,
                  disabled=len(cambios_per) == 0):
         errores = [rid for rid, c in cambios_per.items() if not c["nombre"]]
@@ -174,8 +307,7 @@ with tab_actividades:
         }
 
     st.markdown("### Actividades")
-    hcols = st.columns([4])
-    hcols[0].markdown("**Nombre**")
+    st.markdown("**Nombre**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     cambios_act = {}
