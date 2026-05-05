@@ -219,17 +219,39 @@ with tab_personal:
 
     datos = load_personal()
 
+    # --- Calcular horas esta semana por empleado ---
+    raw_semana_per = load_registros_semana()
+    horas_semana_por_empleado: dict[int, float] = {}
+    for r in raw_semana_per:
+        emp = r.get("personal") or {}
+        # registros_horas no devuelve id_empleado directamente en el join,
+        # así que agrupamos por nombre y luego cruzamos con datos de personal
+        nombre_emp = emp.get("nombre", "")
+        horas = float(r.get("horas_actividad") or 0)
+        horas_semana_por_empleado[nombre_emp] = horas_semana_por_empleado.get(nombre_emp, 0.0) + horas
+
     if "per_estado" not in st.session_state:
         st.session_state.per_estado = {
             row["id_empleado"]: {"nombre": row["nombre"], "activo": row["activo"]}
             for row in datos
         }
 
+    today = date.today()
+    lunes = today - timedelta(days=today.weekday())
+    domingo = lunes + timedelta(days=6)
+
     st.markdown("### Empleados")
-    hcols = st.columns([3, 1, 1])
+    st.markdown(
+        f"<span style='font-size:0.85rem;color:gray'>Horas registradas en la semana: "
+        f"{lunes.strftime('%d/%m/%Y')} — {domingo.strftime('%d/%m/%Y')}</span>",
+        unsafe_allow_html=True,
+    )
+
+    hcols = st.columns([3, 1, 1, 1])
     hcols[0].markdown("**Nombre**")
     hcols[1].markdown("**Activo**")
     hcols[2].markdown("**Alta**")
+    hcols[3].markdown("**Horas registradas en la semana**")
     st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     cambios_per = {}
@@ -239,7 +261,7 @@ with tab_personal:
         orig  = {"nombre": row["nombre"], "activo": row["activo"]}
         estado = st.session_state.per_estado.get(rid, orig.copy())
 
-        rcols = st.columns([3, 1, 1])
+        rcols = st.columns([3, 1, 1, 1])
 
         nuevo_nombre = rcols[0].text_input(
             label="nombre", value=estado["nombre"],
@@ -250,6 +272,16 @@ with tab_personal:
             key=f"per_activo_{rid}", label_visibility="collapsed",
         )
         rcols[2].markdown(fmt_fecha(row.get("fecha_creacion")))
+
+        # Horas de esta semana para este empleado
+        horas_emp = horas_semana_por_empleado.get(row["nombre"], 0.0)
+        if horas_emp == 0.0:
+            rcols[3].markdown(
+                f"<span style='color:red;font-weight:600'>0.00h</span>",
+                unsafe_allow_html=True,
+            )
+        else:
+            rcols[3].markdown(f"{horas_emp:.2f}h")
 
         st.session_state.per_estado[rid] = {"nombre": nuevo_nombre, "activo": nuevo_activo}
 
