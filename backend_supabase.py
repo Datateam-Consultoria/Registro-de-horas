@@ -1,32 +1,64 @@
-from supabase import create_client, Client
-import streamlit as st
+from supabase import Client
 
-url = st.secrets["SUPABASE_URL"]
-key = st.secrets["SUPABASE_KEY"]
-
-supabase: Client = create_client(url, key)
-
-def obtener_empleados_dict_y_lista(url: str, key: str):
-
+def obtener_empleados_dict_y_lista(supabase: Client):
     response = supabase.table("personal").select("id_empleado, nombre").execute()
-
     data = response.data
 
     if not data:
-        print("⚠️ No hay datos o no tienes permisos (RLS)")
         return {}, []
 
-    # Diccionario: nombre -> id_empleado
-    empleados_dict = {row["nombre"]: row["id_empleado"] for row in data}
+    dicc = {row["nombre"]: row["id_empleado"] for row in data}
+    lista = [row["nombre"] for row in data]
 
-    # Lista de nombres
-    nombres_lista = [row["nombre"] for row in data]
+    return dicc, lista
 
-    return empleados_dict, nombres_lista
+def obtener_proyectos_dict_y_lista(supabase: Client):
+    response = supabase.table("proyectos").select("id_proyecto, nombre_proyecto").execute()
+    data = response.data
+
+    if not data:
+        return {}, []
+
+    dicc = {row["nombre_proyecto"]: row["id_proyecto"] for row in data}
+    lista = [row["nombre_proyecto"] for row in data]
+
+    return dicc, lista
+
+def obtener_actividades_dict_y_lista(supabase: Client):
+    response = supabase.table("actividades").select("id_tipo_actividad, nombre_tipo").execute()
+    data = response.data
+
+    if not data:
+        return {}, []
+
+    dicc = {row["nombre_tipo"]: row["id_tipo_actividad"] for row in data}
+    lista = [row["nombre_tipo"] for row in data]
+
+    return dicc, lista
 
 
+def insertar_registro_horas(
+    supabase,
+    id_empleado,
+    id_tipo_actividad,
+    id_proyecto,
+    fecha_registro,
+    horas,
+    nombre,
+    descripcion,
+    inicio,
+    fin
+):
+    data = {
+        "id_empleado": id_empleado,
+        "id_tipo_actividad": id_tipo_actividad,
+        "id_proyecto": id_proyecto,
+        "fecha_registro": fecha_registro,
+        "horas_actividad": horas,
+        "nombre_actividad": nombre,
+        "desc_actividad": descripcion,
+        "inicio_actividad": inicio,
+        "fin_actividad": fin
+    }
 
-empleados_dict, nombres_lista = obtener_empleados_dict_y_lista(url, key)
-
-print(empleados_dict)
-print(nombres_lista)
+    return supabase.table("registros_horas").insert(data).execute()
