@@ -215,7 +215,7 @@ with tab_personal:
 
     datos = load_personal()
 
-    # --- Horas esta semana por empleado (reutiliza cache, sin query extra) ---
+    # --- Horas esta semana por empleado ---
     raw_semana_per = load_registros_semana()
     horas_semana_por_empleado: dict[str, float] = {}
     for r in raw_semana_per:
@@ -244,69 +244,93 @@ with tab_personal:
         unsafe_allow_html=True,
     )
 
-    # Columnas: Nombre | Email | Activo | Alta | Horas semana
-    hcols = st.columns([2, 2, 1, 1, 1])
-    hcols[0].markdown("**Nombre**")
-    hcols[1].markdown("**Email**")
-    hcols[2].markdown("**Activo**")
-    hcols[3].markdown("**Alta**")
-    hcols[4].markdown("**Horas semana**")
-    st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
-
     cambios_per = {}
 
-    for row in datos:
-        rid   = row["id_empleado"]
-        orig  = {
-            "nombre": row["nombre"],
-            "email":  row.get("email", "") or "",
-            "activo": row["activo"],
-        }
-        estado = st.session_state.per_estado.get(rid, orig.copy())
+    def render_empleados(filas, sufijo):
+        """Renderiza la tabla de empleados para un subconjunto dado.
+        sufijo: cadena única para evitar colisiones de keys ('act' o 'inact').
+        """
+        hcols = st.columns([2, 2, 1, 1, 1])
+        hcols[0].markdown("**Nombre**")
+        hcols[1].markdown("**Email**")
+        hcols[2].markdown("**Activo**")
+        hcols[3].markdown("**Alta**")
+        hcols[4].markdown("**Horas semana**")
+        st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
-        rcols = st.columns([2, 2, 1, 1, 1])
+        for row in filas:
+            rid   = row["id_empleado"]
+            orig  = {
+                "nombre": row["nombre"],
+                "email":  row.get("email", "") or "",
+                "activo": row["activo"],
+            }
+            estado = st.session_state.per_estado.get(rid, orig.copy())
 
-        nuevo_nombre = rcols[0].text_input(
-            label="nombre", value=estado["nombre"],
-            key=f"per_nombre_{rid}", label_visibility="collapsed",
-        )
-        nuevo_email = rcols[1].text_input(
-            label="email", value=estado["email"],
-            key=f"per_email_{rid}", label_visibility="collapsed",
-            placeholder="correo@ejemplo.com",
-        )
-        nuevo_activo = rcols[2].checkbox(
-            label="activo", value=estado["activo"],
-            key=f"per_activo_{rid}", label_visibility="collapsed",
-        )
-        rcols[3].markdown(fmt_fecha(row.get("fecha_creacion")))
+            rcols = st.columns([2, 2, 1, 1, 1])
 
-        # Horas semana — rojo si es 0
-        horas_emp = horas_semana_por_empleado.get(row["nombre"], 0.0)
-        if horas_emp == 0.0:
-            rcols[4].markdown(
-                "<span style='color:red;font-weight:600'>0.00h</span>",
-                unsafe_allow_html=True,
+            nuevo_nombre = rcols[0].text_input(
+                label="nombre", value=estado["nombre"],
+                key=f"per_nombre_{rid}_{sufijo}", label_visibility="collapsed",
             )
-        else:
-            rcols[4].markdown(f"{horas_emp:.2f}h")
+            nuevo_email = rcols[1].text_input(
+                label="email", value=estado["email"],
+                key=f"per_email_{rid}_{sufijo}", label_visibility="collapsed",
+                placeholder="correo@ejemplo.com",
+            )
+            nuevo_activo = rcols[2].checkbox(
+                label="activo", value=estado["activo"],
+                key=f"per_activo_{rid}_{sufijo}", label_visibility="collapsed",
+            )
+            rcols[3].markdown(fmt_fecha(row.get("fecha_creacion")))
 
-        st.session_state.per_estado[rid] = {
-            "nombre": nuevo_nombre,
-            "email":  nuevo_email,
-            "activo": nuevo_activo,
-        }
+            horas_emp = horas_semana_por_empleado.get(row["nombre"], 0.0)
+            if horas_emp == 0.0:
+                rcols[4].markdown(
+                    "<span style='color:red;font-weight:600'>0.00h</span>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                rcols[4].markdown(f"{horas_emp:.2f}h")
 
-        if (
-            nuevo_nombre.strip() != orig["nombre"]
-            or nuevo_email.strip() != orig["email"]
-            or nuevo_activo != orig["activo"]
-        ):
-            cambios_per[rid] = {
-                "nombre": nuevo_nombre.strip(),
-                "email":  nuevo_email.strip(),
+            st.session_state.per_estado[rid] = {
+                "nombre": nuevo_nombre,
+                "email":  nuevo_email,
                 "activo": nuevo_activo,
             }
+
+            if (
+                nuevo_nombre.strip() != orig["nombre"]
+                or nuevo_email.strip() != orig["email"]
+                or nuevo_activo != orig["activo"]
+            ):
+                cambios_per[rid] = {
+                    "nombre": nuevo_nombre.strip(),
+                    "email":  nuevo_email.strip(),
+                    "activo": nuevo_activo,
+                }
+
+    activos   = [r for r in datos if r["activo"]]
+    inactivos = [r for r in datos if not r["activo"]]
+
+    filtro_per = st.radio(
+        "Ver",
+        options=[f"✅ Activos ({len(activos)})", f"🔴 Inactivos ({len(inactivos)})"],
+        horizontal=True,
+        key="per_filtro",
+        label_visibility="collapsed",
+    )
+
+    if filtro_per.startswith("✅"):
+        if activos:
+            render_empleados(activos, "act")
+        else:
+            st.info("No hay empleados activos.")
+    else:
+        if inactivos:
+            render_empleados(inactivos, "inact")
+        else:
+            st.info("No hay empleados inactivos.")
 
     if cambios_per:
         st.info(f"✏️ {len(cambios_per)} registro(s) con cambios sin guardar.")
@@ -432,35 +456,60 @@ with tab_proyectos:
         }
 
     st.markdown("### Proyectos")
-    hcols = st.columns([3, 1, 1])
-    hcols[0].markdown("**Nombre**")
-    hcols[1].markdown("**Activo**")
-    hcols[2].markdown("**Alta**")
-    st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
     cambios_proy = {}
 
-    for row in datos:
-        rid    = row["id_proyecto"]
-        orig   = {"nombre": row["nombre_proyecto"], "activo": row["activo"]}
-        estado = st.session_state.proy_estado.get(rid, orig.copy())
+    def render_proyectos(filas, sufijo):
+        """Renderiza la tabla de proyectos para un subconjunto dado."""
+        hcols = st.columns([3, 1, 1])
+        hcols[0].markdown("**Nombre**")
+        hcols[1].markdown("**Activo**")
+        hcols[2].markdown("**Alta**")
+        st.markdown("<hr style='margin:4px 0 8px 0'>", unsafe_allow_html=True)
 
-        rcols = st.columns([3, 1, 1])
+        for row in filas:
+            rid    = row["id_proyecto"]
+            orig   = {"nombre": row["nombre_proyecto"], "activo": row["activo"]}
+            estado = st.session_state.proy_estado.get(rid, orig.copy())
 
-        nuevo_nombre = rcols[0].text_input(
-            label="nombre", value=estado["nombre"],
-            key=f"proy_nombre_{rid}", label_visibility="collapsed",
-        )
-        nuevo_activo = rcols[1].checkbox(
-            label="activo", value=estado["activo"],
-            key=f"proy_activo_{rid}", label_visibility="collapsed",
-        )
-        rcols[2].markdown(fmt_fecha(row.get("fecha_creacion")))
+            rcols = st.columns([3, 1, 1])
 
-        st.session_state.proy_estado[rid] = {"nombre": nuevo_nombre, "activo": nuevo_activo}
+            nuevo_nombre = rcols[0].text_input(
+                label="nombre", value=estado["nombre"],
+                key=f"proy_nombre_{rid}_{sufijo}", label_visibility="collapsed",
+            )
+            nuevo_activo = rcols[1].checkbox(
+                label="activo", value=estado["activo"],
+                key=f"proy_activo_{rid}_{sufijo}", label_visibility="collapsed",
+            )
+            rcols[2].markdown(fmt_fecha(row.get("fecha_creacion")))
 
-        if nuevo_nombre.strip() != orig["nombre"] or nuevo_activo != orig["activo"]:
-            cambios_proy[rid] = {"nombre": nuevo_nombre.strip(), "activo": nuevo_activo}
+            st.session_state.proy_estado[rid] = {"nombre": nuevo_nombre, "activo": nuevo_activo}
+
+            if nuevo_nombre.strip() != orig["nombre"] or nuevo_activo != orig["activo"]:
+                cambios_proy[rid] = {"nombre": nuevo_nombre.strip(), "activo": nuevo_activo}
+
+    activos_proy   = [r for r in datos if r["activo"]]
+    inactivos_proy = [r for r in datos if not r["activo"]]
+
+    filtro_proy = st.radio(
+        "Ver",
+        options=[f"✅ Activos ({len(activos_proy)})", f"🔴 Inactivos ({len(inactivos_proy)})"],
+        horizontal=True,
+        key="proy_filtro",
+        label_visibility="collapsed",
+    )
+
+    if filtro_proy.startswith("✅"):
+        if activos_proy:
+            render_proyectos(activos_proy, "act")
+        else:
+            st.info("No hay proyectos activos.")
+    else:
+        if inactivos_proy:
+            render_proyectos(inactivos_proy, "inact")
+        else:
+            st.info("No hay proyectos inactivos.")
 
     if cambios_proy:
         st.info(f"✏️ {len(cambios_proy)} registro(s) con cambios sin guardar.")
@@ -497,3 +546,4 @@ with tab_proyectos:
                 st.rerun()
             except Exception as e:
                 st.error(f"Error al guardar: {e}")
+                
